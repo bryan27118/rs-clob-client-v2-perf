@@ -1689,6 +1689,9 @@ impl<K: Kind> Client<Authenticated<K>> {
             defer_exec,
         }: SignableOrder,
     ) -> Result<SignedOrder> {
+        #[cfg(feature = "tracing")]
+        let t_sign_start = std::time::Instant::now();
+
         let chain_id = signer
             .chain_id()
             .expect("Validated not none in `authenticate`");
@@ -1697,11 +1700,26 @@ impl<K: Kind> Client<Authenticated<K>> {
             OrderPayload::V1(p) => p.order.tokenId,
             OrderPayload::V2(p) => p.order.tokenId,
         };
+
+        // Perf: neg_risk lookup. Cache hit (common) is ~100ns; cache miss
+        // (first touch of a token) hits the CLOB `/neg-risk` endpoint
+        // (~80ms). We log both so cache-miss outliers are attributable.
+        #[cfg(feature = "tracing")]
+        let t_neg_risk = std::time::Instant::now();
+
         let neg_risk = self.neg_risk(token_id).await?.neg_risk;
+
+        #[cfg(feature = "tracing")]
+        let neg_risk_us = t_neg_risk.elapsed().as_micros() as u64;
+
         let config = contract_config(chain_id, neg_risk)
             .ok_or(Error::missing_contract_config(chain_id, neg_risk))?;
 
-        let signature = match &payload {
+        // Perf: keccak of the EIP-712 struct. Pure CPU, typically <10μs.
+        #[cfg(feature = "tracing")]
+        let t_eip712 = std::time::Instant::now();
+
+        let digest = match &payload {
             OrderPayload::V2(p) => {
                 let exchange = config.exchange_v2.ok_or_else(|| {
                     Error::validation(format!(
@@ -1715,9 +1733,7 @@ impl<K: Kind> Client<Authenticated<K>> {
                     verifying_contract: Some(exchange),
                     ..Eip712Domain::default()
                 };
-                signer
-                    .sign_hash(&p.order.eip712_signing_hash(&domain))
-                    .await?
+                p.order.eip712_signing_hash(&domain)
             }
             OrderPayload::V1(p) => {
                 let domain = Eip712Domain {
@@ -1727,11 +1743,34 @@ impl<K: Kind> Client<Authenticated<K>> {
                     verifying_contract: Some(config.exchange),
                     ..Eip712Domain::default()
                 };
-                signer
-                    .sign_hash(&p.order.eip712_signing_hash(&domain))
-                    .await?
+                p.order.eip712_signing_hash(&domain)
             }
         };
+
+        #[cfg(feature = "tracing")]
+        let eip712_us = t_eip712.elapsed().as_micros() as u64;
+
+        // Perf: the ECDSA sign_hash call. Dominant cost in this function
+        // (~100-150μs for LocalSigner, longer for KMS signers).
+        #[cfg(feature = "tracing")]
+        let t_ecdsa = std::time::Instant::now();
+
+        let signature = signer.sign_hash(&digest).await?;
+
+        #[cfg(feature = "tracing")]
+        {
+            let ecdsa_us = t_ecdsa.elapsed().as_micros() as u64;
+            let sign_total_us = t_sign_start.elapsed().as_micros() as u64;
+            tracing::info!(
+                target: "polymarket_client_sdk_v2::perf",
+                neg_risk_us = neg_risk_us,
+                eip712_us = eip712_us,
+                ecdsa_us = ecdsa_us,
+                sign_total_us = sign_total_us,
+                neg_risk = neg_risk,
+                "order_sign"
+            );
+        }
 
         Ok(SignedOrder {
             payload,
@@ -1757,12 +1796,27 @@ impl<K: Kind> Client<Authenticated<K>> {
     /// - The order price/size violates market rules
     /// - The request fails
     pub async fn post_order(&self, order: SignedOrder) -> Result<PostOrderResponse> {
+        // Perf: wall-clock the pre-flight (request build + L2 auth headers
+        // including HMAC). Typically <1ms when the decoded HMAC key is
+        // memoized; gets interesting on cold first call.
+        #[cfg(feature = "tracing")]
+        let t_prep = std::time::Instant::now();
+
         let request = self
             .client()
             .request(Method::POST, format!("{}order", self.host()))
             .json(&order)
             .build()?;
         let headers = self.create_headers(&request).await?;
+
+        #[cfg(feature = "tracing")]
+        let prep_us = t_prep.elapsed().as_micros() as u64;
+        #[cfg(feature = "tracing")]
+        tracing::info!(
+            target: "polymarket_client_sdk_v2::perf",
+            prep_us = prep_us,
+            "order_post_prep"
+        );
 
         let result = crate::request(&self.inner.client, request, Some(headers)).await;
         self.invalidate_version_if_mismatch(&result).await;

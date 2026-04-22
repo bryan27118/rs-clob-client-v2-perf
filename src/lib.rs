@@ -271,7 +271,17 @@ async fn request<Response: DeserializeOwned>(
         request.headers_mut().extend(h);
     }
 
+    // Perf: time `reqwest::Client::execute` — this is the wire + server-side
+    // matching cost. Typically dominates end-to-end REST latency (200–700ms
+    // on Polymarket's CLOB).
+    #[cfg(feature = "tracing")]
+    let t_execute = std::time::Instant::now();
+
     let response = client.execute(request).await?;
+
+    #[cfg(feature = "tracing")]
+    let execute_us = t_execute.elapsed().as_micros() as u64;
+
     let status_code = response.status();
 
     #[cfg(feature = "tracing")]
@@ -292,8 +302,38 @@ async fn request<Response: DeserializeOwned>(
         return Err(Error::status(status_code, method, path, message));
     }
 
+    // Perf: time body download + generic serde_json::Value parse. This is
+    // where simd-json would potentially help (Tier 2 upgrade candidate).
+    #[cfg(feature = "tracing")]
+    let t_body = std::time::Instant::now();
+
     let json_value = response.json::<serde_json::Value>().await?;
+
+    #[cfg(feature = "tracing")]
+    let body_us = t_body.elapsed().as_micros() as u64;
+
+    // Perf: time typed deserialize (runs `deserialize_with_warnings`, which
+    // also logs unknown API fields when the tracing feature is on).
+    #[cfg(feature = "tracing")]
+    let t_deser = std::time::Instant::now();
+
     let response_data: Option<Response> = serde_helpers::deserialize_with_warnings(json_value)?;
+
+    #[cfg(feature = "tracing")]
+    {
+        let deser_us = t_deser.elapsed().as_micros() as u64;
+        tracing::info!(
+            target: "polymarket_client_sdk_v2::perf",
+            method = %method,
+            path = %path,
+            status = status_code.as_u16(),
+            execute_us = execute_us,
+            body_us = body_us,
+            deser_us = deser_us,
+            total_us = execute_us + body_us + deser_us,
+            "http_roundtrip"
+        );
+    }
 
     if let Some(response) = response_data {
         Ok(response)
