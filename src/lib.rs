@@ -12,6 +12,7 @@ pub mod data;
 pub mod error;
 #[cfg(feature = "gamma")]
 pub mod gamma;
+pub mod http_config;
 #[cfg(feature = "rtds")]
 pub mod rtds;
 pub(crate) mod serde_helpers;
