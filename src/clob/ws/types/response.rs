@@ -374,9 +374,15 @@ pub struct TradeMessage {
     /// Array of maker order details
     #[serde(default)]
     pub maker_orders: Vec<MakerOrder>,
-    /// Fee rate in basis points (string in API response)
+    /// Fee rate in basis points (serialized as a JSON string on the wire).
+    ///
+    /// Was `Option<Decimal>` in earlier versions; fees are always integer
+    /// basis points in [0, 10_000], so decoding directly to `u32` avoids a
+    /// Decimal -> String -> u32 round-trip in hot-path WS consumers (see
+    /// cryptobot's WS bridge).
+    #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
-    pub fee_rate_bps: Option<Decimal>,
+    pub fee_rate_bps: Option<u32>,
     /// On-chain transaction hash
     #[serde_as(as = "NoneAsEmptyString")]
     #[serde(default)]
