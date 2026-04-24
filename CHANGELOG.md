@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2](https://github.com/Polymarket/rs-clob-client-v2/compare/v0.5.1...v0.5.2) - 2026-04-24
+
+### Other
+
+- fix release-plz action path after repo rename
+
 ## [0.4.4](https://github.com/Polymarket/rs-clob-client/compare/v0.4.3...v0.4.4) - 2026-03-17
 
 ### Fixed
