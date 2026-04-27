@@ -1394,6 +1394,14 @@ impl<S: State> Client<S> {
     fn client(&self) -> &ReqwestClient {
         &self.inner.client
     }
+
+    /// Exposes the internal reqwest client for callers that need to run
+    /// operations against the same connection pool (e.g.
+    /// `http_config::prewarm_connections`). Use sparingly — going around
+    /// the SDK's built-in methods bypasses auth and rate limiting.
+    pub fn raw_http_client(&self) -> &ReqwestClient {
+        &self.inner.client
+    }
 }
 
 impl Client<Unauthenticated> {
