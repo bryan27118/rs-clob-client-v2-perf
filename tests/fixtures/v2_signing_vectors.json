@@ -1,0 +1,56 @@
+{
+  "vectors": [
+    {
+      "name": "polygon_standard_buy",
+      "inputs": {
+        "private_key": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        "chain_id": 137,
+        "verifying_contract": "0xE111180000d2663C0091e4f400237545B87B996B",
+        "salt": 1,
+        "maker": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        "signer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        "token_id": 123,
+        "maker_amount": 1000000,
+        "taker_amount": 2000000,
+        "side": 0,
+        "signature_type": 0,
+        "timestamp_ms": 1700000000000,
+        "metadata": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "builder": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "expiration": 0
+      },
+      "expected": {
+        "domain_separator": "0x3264e159346253e26a64e00b69032db0e7d32f94628de3e6eecb50304d7af3d2",
+        "struct_hash": "0x463ae2f40a3d0403c9fa7da732fce48d95ad4f9956433d682c731d012e37c8bb",
+        "digest": "0x7bbada4be6a9644bb7358492f1e2740f1b754ad4b5c8b3fe77b25f9ab83d1232",
+        "signature": "0x5eff01a75a62be01f32db5d1f10acc0c78314e6acda833d17628880da8bb7c9b15581b899c35f864c0bc0e26e0ae5138ef3e1483f767591db8146e709e122d891c"
+      }
+    },
+    {
+      "name": "polygon_neg_risk_sell",
+      "inputs": {
+        "private_key": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        "chain_id": 137,
+        "verifying_contract": "0xe2222d279d744050d28e00520010520000310F59",
+        "salt": 1,
+        "maker": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        "signer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        "token_id": 123,
+        "maker_amount": 1000000,
+        "taker_amount": 2000000,
+        "side": 1,
+        "signature_type": 0,
+        "timestamp_ms": 1700000000000,
+        "metadata": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "builder": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "expiration": 0
+      },
+      "expected": {
+        "domain_separator": "0x9b858f53327b0bd13af8ec14cfb35234fb9eb7b0504d1a4e61f433840d30e81a",
+        "struct_hash": "0x9e1e1a730bb74b8b00df6d3bce8116e16ccf73635f1ff0707b027e7c1531cb0c",
+        "digest": "0x93f0f77175de62f2f80e68f6b7df2bada20d0e48a2474e7dec68c8882905b4ae",
+        "signature": "0xb927ea82c512639b380ed07438e1c21593a16484e87173187dd7f5caa9f839d10374f524a9456a69abbf73a12e7dfc4a3fe7e822028a5258ef0ac0b619e535671c"
+      }
+    }
+  ]
+}
