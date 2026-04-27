@@ -209,6 +209,7 @@ impl<S: Signer, K: Kind> AuthenticationBuilder<'_, S, K> {
             address: self.signer.address(),
             credentials,
             kind: self.kind,
+            secret_decoded_cache: std::sync::Arc::new(std::sync::OnceLock::new()),
         };
 
         #[cfg_attr(

@@ -73,8 +73,21 @@ impl Credentials {
 /// Each client can exist in one state at a time, i.e. [`state::Unauthenticated`] or
 /// [`state::Authenticated`].
 pub mod state {
+    use std::sync::{Arc, OnceLock};
+
+    #[cfg(any(feature = "clob", test))]
+    use base64::Engine as _;
+    #[cfg(any(feature = "clob", test))]
+    use base64::engine::general_purpose::URL_SAFE;
+    #[cfg(any(feature = "clob", test))]
+    use secrecy::ExposeSecret as _;
+
     use crate::auth::{Credentials, Kind};
+    #[cfg(any(feature = "clob", test))]
+    use crate::error::Error;
     use crate::types::Address;
+    #[cfg(any(feature = "clob", test))]
+    use crate::Result;
 
     /// The initial state of the client
     #[non_exhaustive]
@@ -101,6 +114,29 @@ pub mod state {
         /// The [`Kind`] that this [`Authenticated`] exhibits. Used to generate additional headers
         /// for different types of authentication, e.g. Builder.
         pub(crate) kind: K,
+        /// Cache for the base64-decoded HMAC key bytes. Populated lazily on the
+        /// first authenticated call and reused thereafter. `Arc<OnceLock<_>>`
+        /// keeps `Clone` cheap and lets concurrent first-callers race
+        /// harmlessly (whoever loses the `set()` reads the other's value).
+        pub(crate) secret_decoded_cache: Arc<OnceLock<Arc<Vec<u8>>>>,
+    }
+
+    #[cfg(any(feature = "clob", test))]
+    impl<K: Kind> Authenticated<K> {
+        /// Returns the URL-safe base64-decoded HMAC secret bytes, decoding on
+        /// the first call and caching for the lifetime of this state. All
+        /// clones of this `Authenticated` share the same cache cell.
+        pub(crate) fn decoded_secret(&self) -> Result<Arc<Vec<u8>>> {
+            if let Some(bytes) = self.secret_decoded_cache.get() {
+                return Ok(Arc::clone(bytes));
+            }
+            let decoded = URL_SAFE
+                .decode(self.credentials.secret.expose_secret())
+                .map_err(|e| Error::validation(format!("invalid HMAC secret encoding: {e}")))?;
+            let arc = Arc::new(decoded);
+            let _ = self.secret_decoded_cache.set(Arc::clone(&arc));
+            Ok(self.secret_decoded_cache.get().cloned().unwrap_or(arc))
+        }
     }
 
     /// The clob state can only be [`Unauthenticated`] or [`Authenticated`].
@@ -232,8 +268,8 @@ pub(crate) mod l2 {
         request: &Request,
         timestamp: Timestamp,
     ) -> Result<HeaderMap> {
-        let credentials = &state.credentials;
-        let signature = hmac(&credentials.secret, &to_message(request, timestamp))?;
+        let decoded = state.decoded_secret()?;
+        let signature = hmac(&decoded, &to_message(request, timestamp))?;
 
         let mut map = HeaderMap::new();
 
@@ -275,9 +311,8 @@ fn body_to_string(body: &Body) -> Option<String> {
 }
 
 #[cfg(any(feature = "clob", test))]
-fn hmac(secret: &SecretString, message: &str) -> Result<String> {
-    let decoded_secret = URL_SAFE.decode(secret.expose_secret())?;
-    let mut mac = Hmac::<Sha256>::new_from_slice(&decoded_secret)?;
+fn hmac(decoded_key: &[u8], message: &str) -> Result<String> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(decoded_key)?;
     mac.update(message.as_bytes());
 
     let result = mac.finalize().into_bytes();
@@ -349,6 +384,7 @@ mod tests {
                 ),
             },
             kind: Normal,
+            secret_decoded_cache: std::sync::Arc::new(std::sync::OnceLock::new()),
         };
 
         let request = Request::new(Method::GET, Url::parse("http://localhost/")?);
@@ -403,10 +439,9 @@ mod tests {
             .build()?;
 
         let message = to_message(&request, 1_000_000);
-        let signature = hmac(
-            &SecretString::from("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".to_owned()),
-            &message,
-        )?;
+        let decoded =
+            URL_SAFE.decode("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")?;
+        let signature = hmac(&decoded, &message)?;
 
         assert_eq!(message, r#"1000000test-sign/orders{"hash":"0x123"}"#);
         assert_eq!(signature, "4gJVbox-R6XlDK4nlaicig0_ANVL1qdcahiL8CXfXLM=");

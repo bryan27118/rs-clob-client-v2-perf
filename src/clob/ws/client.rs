@@ -125,6 +125,7 @@ impl Client<Unauthenticated> {
                     address,
                     credentials,
                     kind: Normal,
+                    secret_decoded_cache: std::sync::Arc::new(std::sync::OnceLock::new()),
                 },
                 config,
                 base_endpoint,
