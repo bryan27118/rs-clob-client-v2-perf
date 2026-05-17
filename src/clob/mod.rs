@@ -154,6 +154,7 @@
 
 pub mod client;
 pub mod order_builder;
+pub mod poly1271;
 pub mod types;
 pub mod utilities;
 #[cfg(feature = "ws")]

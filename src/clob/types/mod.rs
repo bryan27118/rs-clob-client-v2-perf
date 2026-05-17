@@ -1,6 +1,6 @@
 use std::fmt;
 
-use alloy::primitives::{B256, Signature, U256};
+use alloy::primitives::{Bytes, B256, Signature, U256};
 use bon::Builder;
 use rust_decimal_macros::dec;
 use serde::ser::{Error as _, SerializeStruct as _};
@@ -654,6 +654,11 @@ pub struct SignedOrder {
     pub owner: ApiKey,
     pub post_only: Option<bool>,
     pub defer_exec: Option<bool>,
+    /// ERC-7739 wrapped signature for Poly1271 orders (V2 deposit wallets).
+    /// When `Some`, this is used as the wire signature in place of the 65-byte
+    /// ECDSA `signature` (which is left at its default for these orders).
+    /// `None` for all other signature types — keeps legacy paths byte-identical.
+    pub wrapped_signature: Option<Bytes>,
 }
 
 /// V2 `order` body with the signature folded in.
@@ -730,6 +735,16 @@ impl Serialize for SignedOrder {
         }
         let mut st = serializer.serialize_struct("SignedOrder", field_count)?;
 
+        // Poly1271 (V2 deposit wallets) ships an ERC-7739 wrapped signature
+        // instead of a 65-byte ECDSA sig. Everything else uses the standard
+        // ECDSA path. Computed once here so both V1 and V2 paths share the
+        // string.
+        let sig_str = if let Some(wrapped) = &self.wrapped_signature {
+            format!("0x{}", alloy::hex::encode(wrapped))
+        } else {
+            self.signature.to_string()
+        };
+
         match &self.payload {
             OrderPayload::V2(payload) => {
                 let order = &payload.order;
@@ -747,7 +762,7 @@ impl Serialize for SignedOrder {
                     timestamp: &order.timestamp,
                     metadata: &order.metadata,
                     builder: &order.builder,
-                    signature: self.signature.to_string(),
+                    signature: sig_str,
                 };
                 st.serialize_field("order", &body)?;
             }
@@ -767,7 +782,7 @@ impl Serialize for SignedOrder {
                     nonce: &order.nonce,
                     fee_rate_bps: &order.feeRateBps,
                     signature_type: order.signatureType,
-                    signature: self.signature.to_string(),
+                    signature: sig_str,
                 };
                 st.serialize_field("order", &body)?;
             }
@@ -949,6 +964,7 @@ mod tests {
             owner: ApiKey::nil(),
             post_only: None,
             defer_exec: None,
+            wrapped_signature: None,
         };
 
         let value = to_value(&signed_order).expect("serialize SignedOrder");
@@ -969,6 +985,7 @@ mod tests {
             owner: ApiKey::nil(),
             post_only: None,
             defer_exec: Some(false),
+            wrapped_signature: None,
         };
 
         let value = to_value(&signed_order).expect("serialize SignedOrder");

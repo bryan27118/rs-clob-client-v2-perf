@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use alloy::dyn_abi::Eip712Domain;
-use alloy::primitives::U256;
+use alloy::primitives::{Signature, U256};
 use alloy::signers::Signer;
 use alloy::sol_types::SolStruct as _;
 use async_stream::try_stream;
@@ -1727,6 +1727,43 @@ impl<K: Kind> Client<Authenticated<K>> {
         #[cfg(feature = "tracing")]
         let t_eip712 = std::time::Instant::now();
 
+        // Poly1271 (V2 deposit wallets) takes a separate, additive path —
+        // ERC-7739 wrapped signature instead of a 65-byte ECDSA over the
+        // order hash. Detected per-order via the `signatureType` field so
+        // legacy SignatureType::Eoa/Proxy/GnosisSafe paths stay byte-identical.
+        let is_poly1271 = matches!(&payload, OrderPayload::V2(p)
+            if p.order.signatureType == SignatureType::Poly1271 as u8);
+
+        if is_poly1271 {
+            let OrderPayload::V2(p) = &payload else { unreachable!() };
+            let exchange = config.exchange_v2.ok_or_else(|| {
+                Error::validation(format!(
+                    "No V2 exchange contract configured for chain_id={chain_id}, neg_risk={neg_risk}"
+                ))
+            })?;
+            let wrapped = super::poly1271::wrap_signature(signer, &p.order, chain_id, exchange).await?;
+            #[cfg(feature = "tracing")]
+            {
+                let sign_total_us = t_sign_start.elapsed().as_micros() as u64;
+                tracing::info!(
+                    target: "polymarket_client_sdk_v2::perf",
+                    sign_total_us = sign_total_us,
+                    neg_risk = neg_risk,
+                    poly1271 = true,
+                    "order_sign"
+                );
+            }
+            return Ok(SignedOrder {
+                payload,
+                signature: Signature::new(U256::ZERO, U256::ZERO, false),
+                order_type,
+                owner: self.state().credentials.key,
+                post_only,
+                defer_exec,
+                wrapped_signature: Some(wrapped),
+            });
+        }
+
         let digest = match &payload {
             OrderPayload::V2(p) => {
                 let exchange = config.exchange_v2.ok_or_else(|| {
@@ -1787,6 +1824,7 @@ impl<K: Kind> Client<Authenticated<K>> {
             owner: self.state().credentials.key,
             post_only,
             defer_exec,
+            wrapped_signature: None,
         })
     }
 
